@@ -6,6 +6,9 @@
 
 classdef EconomicCase < handle
     properties (Access = private)
+        costTarget;
+        paramToManipulate;
+        
         %% Specified Values
         %Material, Electricity, and System Pricing
         feedPrice = 0.0;                     % [=] $ kg^{-1}
@@ -33,7 +36,12 @@ classdef EconomicCase < handle
         reactantMW = 1.01;                  % [=] g (mol R)^{-1}
         saltMW = 98;                        % [=] g (mol salt)^{-1}
         prodMW = 2.02;                      % [=] g (mol P)^{-1}
+        wasteMW = 100;                      % [=] g (mol W)^{-1}
         electrolyteRatio = 1;               % [=] mol salt/mol e
+        
+        %Separations
+        kp = 0.000;                         % [=] $/kg mixture
+        
         
         %Reactor Properties
         diffusionCoeff = 5e-9;              % [=] m^2 s^{-1}
@@ -107,7 +115,11 @@ classdef EconomicCase < handle
         bopCosts;
         electricityCosts;
         electrolyteCosts;
+        sepCosts;
         cost;
+        
+        %Output from inverted model
+        output;
     end
     
     properties (Hidden = true)
@@ -131,7 +143,7 @@ classdef EconomicCase < handle
         %Constructor definition for the EconomicCase class -- decides
         %whether sensitivity analysis or inversion is being performed, and
         %builds correct model
-        function this = EconomicCase(struct,costTarget)
+        function this = EconomicCase(struct,costTarget,paramToVary)
             %Inputs:
             %   struct                  --  struct - contains all of the
             %                               information that should be used
@@ -147,7 +159,7 @@ classdef EconomicCase < handle
             %                               model details calculated
             
             if nargin > 0 %Non - default constructor called
-                if nargin == 1 %Calculate traditional model (i.e. not inverted)
+                if nargin >= 1 %Calculate traditional model (i.e. not inverted)
                     fields = fieldnames(struct);
                     
                     %See what properties have been assigned to the input
@@ -172,8 +184,15 @@ classdef EconomicCase < handle
                             end
                         end
                     end
-                    
                 end
+                    
+                if nargin == 2
+                    error(['Error while trying to invert the model',...
+                           ', not sure which parameter to vary'])
+                end
+                
+                
+                
             end
             
             %Run default constructor behavior
@@ -188,6 +207,36 @@ classdef EconomicCase < handle
             
             %Run the model in the order specified by output set assignment
             this.runModel();
+            
+            if nargin == 3
+                this.costTarget = costTarget;
+                this.paramToManipulate = paramToVary; %Sets a parameter that can be changed to change cost
+                opts = optimoptions('fmincon','display','none','finitedifferencestepsize',1e-4,'hesspattern',eye(size(this.cost)));
+                debugopts = optimoptions('fmincon','display','iter','plotfcn',@optimplotx);
+                ub = Inf(size(this.cost));
+                lb = -Inf(size(this.cost));
+                if strcmp(EconomicCase.convertName(paramToVary),'currentDensity')
+                    ub = zeros(size(this.cost));
+                    if size(this.limitingCurrentDensity) == size(this.cost)
+                        lb = this.limitingCurrentDensity;
+                    else
+                        lb = repmat(this.limitingCurrentDensity,size(this.cost));
+                    end
+                end
+                [result,fval,flag,out,~,g,H] = fmincon(@(x) norm(this.evalCost(paramToVary,x) - costTarget)^2,...
+                    repmat(this.(EconomicCase.convertName(paramToVary)),...
+                            size(this.cost)),[],[],[],[],lb,ub,[],opts)
+                this.output = result;
+                if flag > 0
+                    this.output = result;
+                else
+                    if contains(out.message,'No solution found')
+                        warning('No solution found in this case, the calculated cost is %0.2f $/kg',fval + costTarget)
+                    end
+                end
+            end
+            
+
         end
         
         %Function for changing model parameters and rerunning the model
@@ -237,7 +286,7 @@ classdef EconomicCase < handle
             pad = [];
             if ~isnan(currentData)
                 xData = [currentData currentData(end)+1];
-                yData = zeros(length(xData)-1,5);
+                yData = zeros(length(xData)-1,6);
                 for i = 1:length(ax.Children)
                     yData(:,i) = ax.Children(i).YData;
                 end
@@ -246,28 +295,29 @@ classdef EconomicCase < handle
                 if i > length(this.breakdown)
                     pad = zeros(1,i-length(this.breakdown));
                 end
-                yData = [yData ; pad , this.breakdown];
+                yData = [yData ; pad , this.breakdown'];
                 
                 cla(ax);
                 
                 b = bar(ax,xData,yData,'stacked','FaceColor','flat');
-                cmap = winter(5);
-                for i = 1:5
+                cmap = winter(6);
+                for i = 1:6
                     b(i).CData = repmat(cmap(i,:),size(b(i).CData,1),1);
                 end
                 
             else
                 xData = [-1 1];
-                yData = [ones(1,5); this.breakdown ];
+                yData = [ones(6,1), this.breakdown ]';
                 figure(1); clf;
                 colormap(gcf,'winter');
                 bar(xData,yData,'stacked')
+                drawnow
                 ax = gca;
             end
             xlim([0 xData(end)+1])
             
-            legend(ax.Children(1:5),...
-                fliplr({'Electricity','Electrolyte','Additional','BOP','Capital'}),...
+            legend(ax.Children(1:6),...
+                fliplr({'Electricity','Separations','Electrolyte','Additional','BOP','Capital'}),...
                 'AutoUpdate','off')
         end
         
@@ -290,12 +340,36 @@ classdef EconomicCase < handle
     end
     
     methods (Access = private)
+        function res = evalCost(this,name,value)
+            switch EconomicCase.convertName(name)
+                case 'currentDensity'
+                    if any(abs(value) > abs(this.limitingCurrentDensity))
+                        if length(this.limitingCurrentDensity) ~= 1
+                            value(abs(value) > abs(this.limitingCurrentDensity)) ...
+                                = this.limitingCurrentDensity(abs(value) > abs(this.limitingCurrentDensity));
+                        else
+                            value(abs(value) > abs(this.limitingCurrentDensity)) = ...
+                                this.limitingCurrentDensity;
+                        end
+                        
+                        warning('Limiting the applied current density')
+                    end
+            end
+            this.vary(name,value)
+            res = this.cost;
+        end
+            
         function runModel(this)
             this.setRateExpression();
             this.calculateCurrent();
             this.calculateReactorArea();
             this.calculateOhmicLosses();
             this.calculateLimitingCurrentDensity();
+            
+            if abs(this.currentDensity) >= abs(this.limitingCurrentDensity)
+                warning('You are over limiting current density, check values')
+            end
+            
             this.calculateMassTransferLosses();
             this.calculateKineticLosses();
             this.calculateOpenCircuitVoltage();
@@ -304,6 +378,7 @@ classdef EconomicCase < handle
             this.calculateFeedFlowRate();
             this.calculateCapitalCosts();
             this.calculateBOPCosts();
+            this.calculateSeparationCosts();
             this.calculateElectricityCosts();
             this.calculateElectrolyteCosts();
             this.calculateTotalCost();
@@ -405,6 +480,28 @@ classdef EconomicCase < handle
             this.bopCosts = this.areaBOPPrice .* this.reactorArea;
         end
         
+        function calculateSeparationCosts(this)
+            
+            %Mass flows
+            prodFlow = this.productionRate * this.prodMW;
+            wasteFlow = -this.current/ this.FARADAY_CONSTANT ...
+                .* ( 1 - this.productFE - this.herFE ) ./ this.wasteElectrons * this.wasteMW;
+            hydrogenFlow = -this.current/ this.FARADAY_CONSTANT ...
+                .* this.herFE ./ 2 * 0.00202; %2 = number of electrons to produce H2
+            reactantFlow = this.flowRate .* ( 1 - this.conversion ) * this.reactantMW;
+            
+            
+            totalFlow = prodFlow + wasteFlow + hydrogenFlow + reactantFlow;
+            
+            prodFrac = prodFlow ./ totalFlow;
+            wastFrac = wasteFlow ./ totalFlow;
+            hydrFrac = hydrogenFlow ./ totalFlow;
+            reacFrac = reactantFlow ./ totalFlow;
+            
+            %Separation costs
+            this.sepCosts = this.kp .* totalFlow;
+        end
+        
         function calculateElectricityCosts(this)
             this.electricityCosts = this.current .* this.cellVoltage ...
                 .* this.electricityPrice ./ this.WATT_TO_KW ...
@@ -423,11 +520,14 @@ classdef EconomicCase < handle
         
         function calculateTotalCost(this)
             this.cost = ( this.electricityCosts + this.electrolyteCosts ...
+                + this.sepCosts ...
                 + ( this.capitalCosts + this.bopCosts ) ./ this.lifetime ...
                 ) ./ ( 1 - this.additionalFactor ) ./ this.productionRate ...
                 ./ this.prodMW;
             
             electricity = this.electricityCosts  ...
+                ./ this.productionRate ./ this.prodMW ;
+            seps = this.sepCosts...
                 ./ this.productionRate ./ this.prodMW ;
             electrolyte = this.electrolyteCosts  ...
                 ./ this.productionRate ./ this.prodMW ;
@@ -437,8 +537,28 @@ classdef EconomicCase < handle
                 ./ this.lifetime ./ this.prodMW ;
             additional = this.cost - electricity - electrolyte - cell - bop;
             
-            this.breakdown = [electricity electrolyte additional bop cell];
+            if any(size(electricity) ~= size(this.cost))
+                electricity = repmat(electricity,size(this.cost));
+            end
+            if any(size(seps) ~= size(this.cost))
+                seps = repmat(seps,size(this.cost));
+            end
+            if any(size(electrolyte) ~= size(this.cost))
+                electrolyte = repmat(electrolyte,size(this.cost));
+            end
+            if any(size(cell) ~= size(this.cost))
+                cell = repmat(cell,size(this.cost));
+            end
+            if any(size(bop) ~= size(this.cost))
+                bop = repmat(bop,size(this.cost));
+            end
+            if any(size(additional) ~= size(this.cost))
+                additional = repmat(additional,size(this.cost));
+            end
+            
+            this.breakdown = [electricity; seps; electrolyte; additional ;bop ;cell];
         end
+        
     end
     
     methods (Access = private, Static = true)
