@@ -1,12 +1,14 @@
 BLACK = [0 0 0];
-BLUE = [0 0 1];
-RED = [1 0 0];
+BLUE = [33.05 86.66 211.75]/255;
+RED = [206.04 59.16 59.16]/255;
 GREEN = [0 1 0];
 FONT_SIZE = 10;
 WIDTH = 7;
 HEIGHT = 3.5;
 LINE_WIDTH = 1.5;
 DETAILED = 0;
+
+close all
 
 struct.feedPrice = 0.01;
 struct.standardPotential = -1.5;
@@ -86,15 +88,16 @@ ax.XColor = BLACK; ax.YColor = BLACK;
 
 ax.XTickLabel = {'Base Case';
     'j = -2 kA m^{-2}';
-    '\epsilon_{HER} = 0.2, \epsilon_P = 0.4';
+    '\epsilon_{HER} = 0.2, \epsilon_P = 0.096';
     '\epsilon_P = 0.75';
     'Final Case'};
 ax.FontSize = FONT_SIZE;
 ax.YLabel.FontSize = FONT_SIZE;
-fix_xticklabels(ax,0.2,{'FontSize',FONT_SIZE});
+
 x_lim = ax.XLim;
 hold(ax,'on')
 plot(ax,[0 6],[1.3 1.3],'LineWidth',LINE_WIDTH,'LineStyle','--','Color',RED);
-ax.XLim = x_lim;
+ax.XLim = [0.5 5.5];
 ax.YScale = 'log'; ax.YLim = [0.1 100];
-saveas(f1,'../ECH TE Paper/figures/waterfall.svg','svg')
+fix_xticklabels(ax,0.2,{'FontSize',FONT_SIZE});
+saveas(f1,'../ECH TE Paper/figures/generated_waterfall.svg','svg')

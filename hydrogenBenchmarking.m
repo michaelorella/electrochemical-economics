@@ -4,20 +4,27 @@
 hydrogenCase = EconomicCase();
 
 %% Get the DOE report data and Model Data
-hydrogenData = fliplr([0.42 0.61 0.76 0.01 3.34 ;
-                0.48 0.53 0.72 0.01 3.38 ]);
+hydrogenData = fliplr([0.42 0.61 0.76 0.01 0 3.34 ;
+                0.48 0.53 0.72 0.01 0 3.38 ]);
 
 %% Plot the results
 
 FONT_SIZE = 10;
 left = 1;
 bottom = 1;
-height = 1.75;
-width = 3.5;
+height = 3.5;
+width = 7;
 BLACK = [0 0 0];
-BLUE = [0 0 1];
+BLUE = [33.05 86.66 211.75]/255;
 
-cmap = winter(5);
+cmap = [206.04 59.16 59.16;
+        0 127.5 0;
+        8.95 63.25 189.95;
+        117.3 0 117.3;
+        168.3 83.16 0;
+        135.41 135.41 17.59;
+        23.87 108.73 108.73;
+        91.8 91.8 91.8]/255;
 
 f1 = figure(1); clf;
 f1.Name = 'Benchmarking H2';
@@ -27,17 +34,17 @@ ax = axes(f1);
 ax.XColor = BLACK; ax.YColor = BLACK;
 b = bar(ax,hydrogenData,'stacked','LineWidth',1,'FaceColor','flat');
 
-for i = 1:5
+for i = 1:size(hydrogenData,2)
     b(i).CData = repmat(cmap(i,:),size(b(i).CData,1),1);
 end
 
 
 legend({'Electricity','Electrolyte','Additional','BOP','Capital'})
 
-hydrogenCase.plotBreakdown(ax)
+hydrogenCase.plotBreakdown(ax,cmap)
 
 hydrogenCase.vary('Production Rate',287);
-hydrogenCase.plotBreakdown(ax)
+hydrogenCase.plotBreakdown(ax,cmap)
 
 ax.XTickLabel = {'H2A Model Forecourt',...
     'H2A Model Central',...
@@ -157,6 +164,6 @@ ax.Children(1).LineWidth = 1;
 ax.Children(2).LineWidth = 1;
 ax.Box = 'on';
 
-% saveas(f1,'../ECH TE Paper/figures/hydrogenBenchmarking.svg','svg')
-% saveas(f2,'../ECH TE Paper/figures/hydrogenTornado.svg','svg')
-% saveas(f3,'../ECH TE Paper/figures/doeHydrogenTornado.svg','svg')
+saveas(f1,'../ECH TE Paper/figures/hydrogenBenchmarking.svg','svg')
+saveas(f2,'../ECH TE Paper/figures/hydrogenTornado.svg','svg')
+saveas(f3,'../ECH TE Paper/figures/doeHydrogenTornado.svg','svg')

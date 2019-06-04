@@ -226,6 +226,7 @@ classdef EconomicCase < handle
                 [result,fval,flag,out,~,g,H] = fmincon(@(x) norm(this.evalCost(paramToVary,x) - costTarget)^2,...
                     repmat(this.(EconomicCase.convertName(paramToVary)),...
                             size(this.cost)),[],[],[],[],lb,ub,[],opts)
+                keyboard;
                 this.output = result;
                 if flag > 0
                     this.output = result;
@@ -277,10 +278,19 @@ classdef EconomicCase < handle
         end
         
         
-        function plotBreakdown(this,ax)
+        function plotBreakdown(this,ax,cmap)
             currentData = NaN;
-            if nargin > 1
+            if nargin > 2
                 currentData = ax.Children(1).XData;
+            elseif nargin >= 1
+                cmap = [206.04 59.16 59.16;
+                    0 127.5 0;
+                    8.95 63.25 189.95;
+                    117.3 0 117.3;
+                    168.3 83.16 0;
+                    135.41 135.41 17.59;
+                    23.87 108.73 108.73;
+                    91.8 91.8 91.8]/255;
             end
                
             pad = [];
@@ -300,8 +310,8 @@ classdef EconomicCase < handle
                 cla(ax);
                 
                 b = bar(ax,xData,yData,'stacked','FaceColor','flat');
-                cmap = winter(6);
-                for i = 1:6
+
+                for i = 1:size(b,2)
                     b(i).CData = repmat(cmap(i,:),size(b(i).CData,1),1);
                 end
                 
@@ -309,9 +319,13 @@ classdef EconomicCase < handle
                 xData = [-1 1];
                 yData = [ones(6,1), this.breakdown ]';
                 figure(1); clf;
-                colormap(gcf,'winter');
-                bar(xData,yData,'stacked')
-                drawnow
+                
+                b = bar(xData,yData,'stacked','FaceColor','flat');
+                
+                for i = 1:size(b,2)
+                    b(i).CData = repmat(cmap(i,:),size(b(i).CData,1),1);
+                end
+                
                 ax = gca;
             end
             xlim([0 xData(end)+1])

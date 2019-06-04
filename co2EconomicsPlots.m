@@ -3,11 +3,12 @@ clear struct
 cmap = [0 0 1; 0 1 0.8];
 NUM_X_POINTS = 100;
 
-FONT_SIZE = 16;
-WIDTH = 8;
-HEIGHT = 5;
-LINE_WIDTH = 2.5;
+FONT_SIZE = 10;
+WIDTH = 3.5;
+HEIGHT = 3.5;
+LINE_WIDTH = 1.0;
 BLACK = [0 0 0];
+RED = [206.04 59.16 59.16]/255;
 
 %% CO2 to CO base parameter structure
 struct.feedPrice = 0.0165;
@@ -38,6 +39,15 @@ varyStruct = struct;
 
 co2econ = EconomicCase(struct);
 co2econ.plotBreakdown()
+ax = gca;
+ax.FontSize = FONT_SIZE;
+ylabel('Cost [$/kg]','fontsize',FONT_SIZE)
+ax.XTickLabels = {'CO_2 State of the Art'};
+ax.Parent.Units = 'inches';
+ax.Parent.Position(3:4) = [WIDTH HEIGHT];
+hold(ax,'on')
+plot(ax,[0 2],[1.2 1.2],'LineWidth',LINE_WIDTH,'LineStyle','--','Color',RED);
+ax.YLim = [0 1.3];
 
 %% 
 %Let's examine what current density we would need to achieve at given
@@ -51,6 +61,7 @@ varyStruct.productFE = 1 - herFEs;
 for targetCost = linspace(0.8,1.5,8)
     currents = NaN(size(herFEs));
     co2econ = EconomicCase(varyStruct,targetCost,'Current Density');
+    keyboard
     currents((co2econ.cost - targetCost).^2 < 1e-4) = co2econ.output((co2econ.cost - targetCost).^2 < 1e-4);
     plot(1-herFEs,currents)
 end
