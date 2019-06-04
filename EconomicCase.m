@@ -161,6 +161,7 @@ classdef EconomicCase < handle
             if nargin > 0 %Non - default constructor called
                 if nargin >= 1 %Calculate traditional model (i.e. not inverted)
                     fields = fieldnames(struct);
+                    this.varyParam = '';
                     
                     %See what properties have been assigned to the input
                     %structure, and copy those over to the object, while
@@ -168,6 +169,9 @@ classdef EconomicCase < handle
                     for field = fields'
                         try
                             this.(char(field)) = struct.(char(field));
+                            if length(struct.(char(field))) > 1
+                            	this.varyParam = EconomicCase.convertName(char(field));
+                            end
                         catch err
                             %Repackage field missing as a warning and
                             %continue with the default parameter value
@@ -211,8 +215,8 @@ classdef EconomicCase < handle
             if nargin == 3
                 this.costTarget = costTarget;
                 this.paramToManipulate = paramToVary; %Sets a parameter that can be changed to change cost
-                opts = optimoptions('fmincon','display','none','finitedifferencestepsize',1e-4,'hesspattern',eye(size(this.cost)));
-                debugopts = optimoptions('fmincon','display','iter','plotfcn',@optimplotx);
+
+                opts = optimoptions('fmincon','display','iter');
                 ub = Inf(size(this.cost));
                 lb = -Inf(size(this.cost));
                 if strcmp(EconomicCase.convertName(paramToVary),'currentDensity')
@@ -223,10 +227,13 @@ classdef EconomicCase < handle
                         lb = repmat(this.limitingCurrentDensity,size(this.cost));
                     end
                 end
+                keyboard
+                guess = this.(EconomicCase.convertName(paramToVary));
+                if length(guess) ~= length(this.cost)
+                	guess = repmat(guess,size(this.cost));
+                end
                 [result,fval,flag,out,~,g,H] = fmincon(@(x) norm(this.evalCost(paramToVary,x) - costTarget)^2,...
-                    repmat(this.(EconomicCase.convertName(paramToVary)),...
-                            size(this.cost)),[],[],[],[],lb,ub,[],opts)
-                keyboard;
+                    guess,[],[],[],[],lb,ub,[],opts)
                 this.output = result;
                 if flag > 0
                     this.output = result;
@@ -354,7 +361,12 @@ classdef EconomicCase < handle
     end
     
     methods (Access = private)
-        function res = evalCost(this,name,value)
+        function res = evalCost(this,name,value,idx)
+
+        	if nargin < 4
+        		idx = logical(ones(size(this.cost)));
+        	end
+
             switch EconomicCase.convertName(name)
                 case 'currentDensity'
                     if any(abs(value) > abs(this.limitingCurrentDensity))
@@ -370,7 +382,7 @@ classdef EconomicCase < handle
                     end
             end
             this.vary(name,value)
-            res = this.cost;
+            res = this.cost(idx);
         end
             
         function runModel(this)

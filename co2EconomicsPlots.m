@@ -54,14 +54,13 @@ ax.YLim = [0 1.3];
 %selectivities
 figure(2); clf;
 hold all
-herFEs = (0:0.01:0.5);
+herFEs = [0 0.25 0.5];
 
 varyStruct.herFE = herFEs;
 varyStruct.productFE = 1 - herFEs;
 for targetCost = linspace(0.8,1.5,8)
     currents = NaN(size(herFEs));
     co2econ = EconomicCase(varyStruct,targetCost,'Current Density');
-    keyboard
     currents((co2econ.cost - targetCost).^2 < 1e-4) = co2econ.output((co2econ.cost - targetCost).^2 < 1e-4);
     plot(1-herFEs,currents)
 end
