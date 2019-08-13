@@ -1,10 +1,15 @@
+%EconomicCase Calculate the economics of electrolyzers
+%
 %Written by: Mike Orella
-%Last Edited by: Mike Orella 28 May 2018
+%Last Edited by: Mike Orella 12 August 2019
 %Class file for handling technoeconomic model of electrolytic reactor for
-%reaction types R --> P , R --> W. For details on derivations of equations
-%presented herein, see notebook
+%reductive reactions of the type R --> P, R --> W.
+%
+%For details on derivations of equations presented herein, see 
+%[citation to add]
 
 classdef EconomicCase < handle
+
     properties (Access = private)
         costTarget;
         paramToManipulate;
@@ -31,7 +36,7 @@ classdef EconomicCase < handle
         rateName = 'BV';                    % [=] String (e.g. BV or MHC)
         
         %Solution Properties
-        molality = 1;                       % [=] mol R kg^{-1}
+        molality = 1;                       % [=] mol R kg solvent^{-1}
         molarity = 1000;                    % [=] mol R m^{-3}
         reactantMW = 1.01;                  % [=] g (mol R)^{-1}
         saltMW = 98;                        % [=] g (mol salt)^{-1}
@@ -99,27 +104,33 @@ classdef EconomicCase < handle
     end
     
     properties
+        %Important calculated outputs
+        
         %Reactor properties
-        reactorArea;
+        
+        reactorArea;                % [=] m^2   -- required area       
         
         %Electrical properties
-        current;
-        ohmics;
-        massTransfer;
-        kinetics;
-        ocv;
-        cellVoltage;
+        
+        current;                    % [=] A     -- total current
+        ohmics;                     % [=] V     -- ohmic overpotential
+        massTransfer;               % [=] V     -- mass transfer overpotential
+        kinetics;                   % [=] V     -- kinetic overpotential
+        ocv;                        % [=] V     -- open circuit potential
+        cellVoltage;                % [=] V     -- total cell voltage
         
         %Final calculated cost values
-        capitalCosts;
-        bopCosts;
-        electricityCosts;
-        electrolyteCosts;
-        sepCosts;
-        cost;
+        
+        capitalCosts;               % [=] $     -- total capital cost
+        bopCosts;                   % [=] $     -- total balance of plant cost
+        electricityCosts;           % [=] $/s   -- instantaneous electricity cost
+        electrolyteCosts;           % [=] $/s   -- instantaneous feed costs
+        sepCosts;                   % [=] $     -- total cost of separations
+        cost;                       % [=] $/kg  -- minimum selling price
         
         %Output from inverted model
-        output;
+        
+        output;                     % [=] ?     -- value of any parameter solved in inverted model
     end
     
     properties (Hidden = true)
@@ -139,11 +150,18 @@ classdef EconomicCase < handle
         varyParam;
     end
     
+    
     methods
-        %Constructor definition for the EconomicCase class -- decides
-        %whether sensitivity analysis or inversion is being performed, and
-        %builds correct model
         function this = EconomicCase(struct,costTarget,paramToVary)
+            %EconomicCase constructor builds electrolyzer model
+            %
+            %Can be used to build two types of models. In the first, all
+            %non-default parameter values are specified in a data structure
+            %and the system cost ($/kg) is solved according to the
+            %specified equations. In the second, all-but-one are specified,
+            %along with the desired cost. An optimization then solves for
+            %the required parameter value to satisfy the cost.            
+            %
             %Inputs:
             %   struct                  --  struct - contains all of the
             %                               information that should be used
@@ -153,6 +171,8 @@ classdef EconomicCase < handle
             %                               the structure)
             %   costTarget              --  double - if model is being
             %                               inverted
+            %   paramToVary             --  str - the name of the parameter
+            %                               that is unspecified            
             %Outputs:
             %   this                    --  EconomicCase - new economic
             %                               case object with all of the
@@ -216,9 +236,14 @@ classdef EconomicCase < handle
                 this.costTarget = costTarget;
                 this.paramToManipulate = paramToVary; %Sets a parameter that can be changed to change cost
 
-                opts = optimoptions('fmincon','display','iter');
+                %Set up the solver to calculate the manipulated variable
+                %value
+                opts = optimoptions('fmincon','display','off');
                 ub = Inf(size(this.cost));
                 lb = -Inf(size(this.cost));
+                
+                %Make sure that the solver doesn't take us to a point where
+                %the current density is not feasible
                 if strcmp(EconomicCase.convertName(paramToVary),'currentDensity')
                     ub = zeros(size(this.cost));
                     if size(this.limitingCurrentDensity) == size(this.cost)
@@ -227,29 +252,42 @@ classdef EconomicCase < handle
                         lb = repmat(this.limitingCurrentDensity,size(this.cost));
                     end
                 end
-                keyboard
+                
+                %Start from the default value of the parameter
                 guess = this.(EconomicCase.convertName(paramToVary));
+                
+                %Should work for inputs of all sizes, but works best for
+                %scalar tests
                 if length(guess) ~= length(this.cost)
                 	guess = repmat(guess,size(this.cost));
                 end
-                [result,fval,flag,out,~,g,H] = fmincon(@(x) norm(this.evalCost(paramToVary,x) - costTarget)^2,...
-                    guess,[],[],[],[],lb,ub,[],opts)
+                
+                %Try to get the calculated cost as close to the eval cost
+                %as possible
+                [result,fval] = fmincon(@(x) norm(this.evalCost(paramToVary,x) - costTarget),...
+                    guess,[],[],[],[],lb,ub,[],opts);
                 this.output = result;
-                if flag > 0
-                    this.output = result;
-                else
-                    if contains(out.message,'No solution found')
-                        warning('No solution found in this case, the calculated cost is %0.2f $/kg',fval + costTarget)
-                    end
+                if fval > 1e-4
+                    warning('Equation not solved, check final conditions')
                 end
             end
-            
-
         end
         
-        %Function for changing model parameters and rerunning the model
-        %with the newly specified input
         function vary(this,paramName,paramValue)
+            %vary Recalculates the economic model after changed input
+            %
+            %In general, this function is used for sensitivity analysis to
+            %examine the effect of changing parameter values on system
+            %cost.
+            %
+            %Inputs:
+            %   paramName       --  str     --  name of the parameter being
+            %                                   changed
+            %   paramValue      --  double  --  new value of the parameter
+            %Outputs:
+            %   recalculates the model, and mutates the values found in
+            %   this (the EconomicCase instance)
+            
             %Parse the passed character string into the name of one of the
             %fields of Economic Case, or throw an error if it is
             %unrecognized
@@ -280,17 +318,39 @@ classdef EconomicCase < handle
         end
         
         function result = getInput(this,paramName)
+            %getInput Helper function to return public and private
+            %attributes of the instance
+            %
+            %Inputs:
+            %   paramName   --  str     --  name of the attribute
+            %Outputs:
+            %   result      --  ?       --  value of the parameter
+            
+            %Parse the input string
             name = EconomicCase.convertName(paramName);
+            
             result = this.(name);
-        end
-        
+        end        
         
         function plotBreakdown(this,ax,cmap)
+            %plotBreakdown Plot the cost contributions for this study
+            %
+            %Looks at all of the cost variables that have been calculated
+            %and normalizes and compares them on a bar chart that can be
+            %used for further analysis
+            %
+            %Inputs:
+            %   ax      -- handle   --  any axis that is blank or has
+            %                           previous economic data in it
+            %   cmap    -- Nx3      --  color map to use for the different
+            %                           categories of costs
+            %Outputs:
+            %   Plot with the current cost contributions broken down in a
+            %   stacked bar chart
+            
+            %Initialize with default values
             currentData = NaN;
-            if nargin > 2
-                currentData = ax.Children(1).XData;
-            elseif nargin >= 1
-                cmap = [206.04 59.16 59.16;
+            map = [206.04 59.16 59.16;
                     0 127.5 0;
                     8.95 63.25 189.95;
                     117.3 0 117.3;
@@ -298,75 +358,136 @@ classdef EconomicCase < handle
                     135.41 135.41 17.59;
                     23.87 108.73 108.73;
                     91.8 91.8 91.8]/255;
+                
+            %Get the data that is already on this plot before erasing it
+            if nargin > 1
+                currentData = ax.Children(1).XData;
             end
-               
+            
+            %Use the non-default colormap
+            if nargin > 2
+                map = cmap;
+            end
+
             pad = [];
+            
+            %Look to see whether or not there was prior data
             if ~isnan(currentData)
                 xData = [currentData currentData(end)+1];
+                
+                %Pre-allocate space for the 6 cost contributions of
+                %everything that was shown previously
                 yData = zeros(length(xData)-1,6);
+                
+                %Extract the prior breakdowns that were on the chart
+                %The organization is such that Children(i) is a particular
+                %cost contribution, not a particular case
                 for i = 1:length(ax.Children)
                     yData(:,i) = ax.Children(i).YData;
                 end
+                
+                %Arrange it so that data is still presented in the same
+                %order
                 yData = fliplr(yData);
                 
+                %If there were more cost contributions present on the
+                %prior chart, just pad whatever is not there with 0s
+                %(typically this shouldn't happen)
                 if i > length(this.breakdown)
                     pad = zeros(1,i-length(this.breakdown));
                 end
+                
                 yData = [yData ; pad , this.breakdown'];
                 
+                %Replot the data
                 cla(ax);
-                
                 b = bar(ax,xData,yData,'stacked','FaceColor','flat');
-
                 for i = 1:size(b,2)
-                    b(i).CData = repmat(cmap(i,:),size(b(i).CData,1),1);
+                    b(i).CData = repmat(map(i,:),size(b(i).CData,1),1);
                 end
-                
             else
+                %Make up some fake data to hide so that MATLAB is happy
                 xData = [-1 1];
                 yData = [ones(6,1), this.breakdown ]';
+                
+                %Plot the data
                 figure(1); clf;
-                
                 b = bar(xData,yData,'stacked','FaceColor','flat');
-                
                 for i = 1:size(b,2)
-                    b(i).CData = repmat(cmap(i,:),size(b(i).CData,1),1);
+                    b(i).CData = repmat(map(i,:),size(b(i).CData,1),1);
                 end
-                
                 ax = gca;
             end
+            
+            %Hide any data hidden behind x = 0
             xlim([0 xData(end)+1])
             
+            %Add a legend to the figure
             legend(ax.Children(1:6),...
                 fliplr({'Electricity','Separations','Electrolyte','Additional','BOP','Capital'}),...
-                'AutoUpdate','off')
+                'AutoUpdate','off','Location','Best')
         end
         
-        function runSensitivity(this,paramName,paramValues,fig,...
-                fileLocation)
+        function runSensitivity(this,paramName,paramValues,fig)
+            %runSensitivity Shortcut method for running and plotting
+            %analysis
+            %
+            %Runs a sensitivity analysis over a list of parameters and
+            %plots the cost results on a figure
+            %
+            %Inputs:
+            %   paramName   -- str      --  name of the parameter for which
+            %                               to run sensitivity
+            %   paramValues -- N x 1    --  values the parameter should
+            %                               take
+            %   fig         -- handle   --  handle to the figure that we
+            %                               should plot the results on
+            %Outputs:
+            %   Updated fig with the new sensitivity plots
+            
+            %Call the vary method on the list of parameters to test (this
+            %work's but should be used sparingly)
             this.vary(paramName,paramValues)
+            
+            %Parse the parameter name so that the results can be plotted
             name = EconomicCase.convertName(paramName);
+            
+            %Make a new figure if one isn't provided
             if nargin < 4 || isempty(fig)
                 fig = figure('Name',['Sensitivity on ',paramName]);
                 axes(fig)
             end
+            
             %Plot results from the sensitivity run
             hold(fig.Children(end),'on')
             plot(fig.Children(end),this.(name),this.cost)
-            
-            if nargin == 5
-                %Save generated figure in the desired location
-            end
         end
     end
     
     methods (Access = private)
         function res = evalCost(this,name,value,idx)
-
+            %evalCost calculates the cost for a certain parameter value and
+            %returns the result
+            %
+            %Wrapper for the VARY function, which is used to re-evaluate
+            %the model. In this case, evalCost also checks whether or not
+            %certain parameter values are allowed, to ensure physical
+            %behavior of the solver.
+            %
+            %Inputs:
+            %   name    -- str      -- Name of the parameter
+            %   value   -- double   -- New value being tested
+            %   idx     -- double   -- Valid parameter values
+            %Outputs:
+            %   res     -- double   -- Cost of the electrolyzer
+            
+            %All values are valid by default
         	if nargin < 4
-        		idx = logical(ones(size(this.cost)));
-        	end
+        		idx = true(size(value));
+            end
 
+            %Make sure to limit the current density applied so that it is
+            %never over limiting
             switch EconomicCase.convertName(name)
                 case 'currentDensity'
                     if any(abs(value) > abs(this.limitingCurrentDensity))
@@ -381,11 +502,25 @@ classdef EconomicCase < handle
                         warning('Limiting the applied current density')
                     end
             end
+            
+            %Recalculate the model
             this.vary(name,value)
             res = this.cost(idx);
         end
             
         function runModel(this)
+            %runModel Calculates the economic model for the electrolyzer
+            %
+            %Using the output set assignment, calculate the cost values
+            %from the model parameter inputs
+            %
+            %Inputs:
+            %   None - all of the parameter values that have previously
+            %   been specified in the economic case
+            %Outputs:
+            %   None - updates the instance of the economic case to reflect
+            %   that the model has calculated and there is a cost
+            
             this.setRateExpression();
             this.calculateCurrent();
             this.calculateReactorArea();
@@ -411,41 +546,77 @@ classdef EconomicCase < handle
         end
         
         function setRateExpression(this)
-            if or( strcmpi( this.rateName , 'BV' ) ,...
-                   strcmpi( this.rateName , 'Butler-Volmer' ) )
-               this.rateExpression = @(n) ( exp (...
-                   - this.numberElectrons .* this.FARADAY_CONSTANT...
-                   .* this.transferCoefficient .* n ...
-                   ./ this.GAS_CONSTANT ./ this.temperature ) - ...
-                   exp ( this.numberElectrons .* this.FARADAY_CONSTANT ...
-                   .* ( 1 - this.transferCoefficient ) .* n ...
-                   ./ this.GAS_CONSTANT ./ this.temperature ) );                   
-%            elseif or( strcmp( this.rateName , 'MHC' ) ,...
-%                    strcmp( this.rateName , 'Marcus-Hush-Chidsey' ) )
-%                this.rateExpression = @(n) [Insert MHC] ;
-%            elseif or( strcmp( this.rateName , 'BVR' ) ,...
-%                    strcmp( this.rateName , 'Butler-Volmer R' ) )
-%                this.rateExpression = @(n) [Insert BVR];
-           else
-               error( 'Rate expression not recognized, try BV' ) ;
-           end
+            %setRateExpression chooses the electrokinetic model for
+            %calculating kinetic overpotential
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            switch lower( this.rateName (~ isspace ( this.rateName ) ) )
+                case {'bv','butler-volmer','butlervolmer'}
+                    this.rateExpression = @(n) ( exp (...
+                        - this.numberElectrons .* this.FARADAY_CONSTANT...
+                        .* this.transferCoefficient .* n ...
+                        ./ this.GAS_CONSTANT ./ this.temperature ) - ...
+                        exp ( this.numberElectrons .* this.FARADAY_CONSTANT ...
+                        .* ( 1 - this.transferCoefficient ) .* n ...
+                        ./ this.GAS_CONSTANT ./ this.temperature ) );
+                otherwise
+                    error('Unknown model, try BV!')
+            end
         end
         
         function calculateCurrent(this)
+            %calculateCurrent computes the total required current
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %Use the total mass balance in the reactor
             this.current = - this.productionRate .* this.numberElectrons ...
                 .* this.FARADAY_CONSTANT ./ this.productFE ;
         end
         
         function calculateReactorArea(this)
+            %calculateReactorArea computes the required area to achieve the
+            %total current requirement
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %Yep, we just have to divide
             this.reactorArea = this.current ./ this.currentDensity;
         end
         
         function calculateOhmicLosses(this)
+            %calculateOhmicLosses Ohm's law for electrolyte conductivity
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %Ohm's law
             this.ohmics = this.currentDensity .* this.cellGap ... 
                 ./ this.conductivity ./ this.CM_TO_M^2;
         end
         
         function calculateLimitingCurrentDensity(this)
+            %calculateLimitingCurrentDensity uses 1D diffusion at SS to a
+            %flat plate to find j_lim
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %1D steady state diffusion model
             this.limitingCurrentDensity = - this.numberElectrons ...
                 .* this.FARADAY_CONSTANT .* this.diffusionCoeff ...
                 .* this.molarity .* ( 1 - this.conversion ) ...
@@ -453,6 +624,17 @@ classdef EconomicCase < handle
         end
         
         function calculateMassTransferLosses(this)
+            %calculateMassTransferLosses uses the Nernst equation to
+            %compute the overall overpotential from MT
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %Adaptation of Nernst equation using surface instead of bulk
+            %concentrations where surface concentrations can be calculated
+            %from the approach to j_lim
             this.massTransfer = this.GAS_CONSTANT .* this.temperature ...
                 ./ this.numberElectrons ./ this.FARADAY_CONSTANT ...
                 .* log ( 1 - this.currentDensity ...
@@ -460,7 +642,18 @@ classdef EconomicCase < handle
         end
         
         function calculateKineticLosses(this)
+            %calculateKineticLosses computes the kinetic overpotentials
+            %from the kinetic expression
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %Start out with a guess that the overpotential is 100 mV
             n0 = -0.1 .* ones(size(this.currentDensity));
+            
+            %Solve the kinetic expression
             options = optimoptions('fsolve','display','off');
             this.kinetics = fsolve(@(n) this.currentDensity...
                 - this.exchangeCurrentDensity .* ...
@@ -468,6 +661,15 @@ classdef EconomicCase < handle
         end
         
         function calculateOpenCircuitVoltage(this)
+            %calculateOpenCircuitVoltage uses Nernst equation to bias
+            %standard conditions
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %The Nernst equation
             this.ocv = this.standardPotential + this.GAS_CONSTANT ...
                 .* this.temperature ./ this.numberElectrons ...
                 ./ this.FARADAY_CONSTANT .* log ( ( 1 - this.conversion )...
@@ -475,11 +677,30 @@ classdef EconomicCase < handle
         end
         
         function calculateCellVoltage(this)
+            %calculateCellVoltage adds all of the cell inefficiencies
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            
             this.cellVoltage = this.ocv + this.ohmics + this.massTransfer ...
                 + this.kinetics;
         end
 
         function calculateInletFlowRate(this)
+            %calculateInletFlowRate does mass balance based on how much
+            %feed material needs to enter reactor
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %The amount of feed consumed is just however much goes to
+            %producing both waste and desired product, with any unconverted
+            %material coming out the back end
             wasteFE = 1 - this.productFE - this.herFE;
             this.flowRate = - this.current ./ this.conversion ... 
                 ./ this.FARADAY_CONSTANT .* ( this.productFE ...
@@ -487,28 +708,65 @@ classdef EconomicCase < handle
         end
         
         function calculateFeedFlowRate(this)
+            %calculateFeedFlowRate accounts for any recycling of unreacted
+            %material
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
             this.feedRate = this.flowRate .* ( 1 - this.recycleFeed ...
                 .* ( 1 - this.conversion ) );
         end
         
         function calculateCapitalCosts(this)
+            %calculateCapitalCosts determines the capital cost
+            %contributions
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %First calculate what the capital cost factor will be at this
+            %scale
             lnP = log(this.basePrice) + this.scaleArea ...
                 .* log ( this.productionRate / this.BASE_RATE );
             this.areaPrice = exp(lnP);
+            
+            %Calculate the capital cost using prior values
             this.capitalCosts = this.reactorArea .* ( this.areaPrice ...
                 + this.catalystLoading .* this.catalystPrice );
         end
         
         function calculateBOPCosts(this)
+            %calculateBOPCosts determines bop contribution
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %Same as above, determine BOP cost factor at this throughput
             lnP = log(this.baseBopPrice) + this.scaleBop ...
                 .* log ( this.productionRate / this.BASE_RATE );
             this.areaBOPPrice = exp(lnP);
+            
+            %Determine what the price will be
             this.bopCosts = this.areaBOPPrice .* this.reactorArea;
         end
         
         function calculateSeparationCosts(this)
+            %calculateSeparationsCosts estimates separations via Sherwood
+            %analysis
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
             
-            %Mass flows
+            %Mass flows from mass balance
             prodFlow = this.productionRate * this.prodMW;
             wasteFlow = -this.current/ this.FARADAY_CONSTANT ...
                 .* ( 1 - this.productFE - this.herFE ) ./ this.wasteElectrons * this.wasteMW;
@@ -519,22 +777,37 @@ classdef EconomicCase < handle
             
             totalFlow = prodFlow + wasteFlow + hydrogenFlow + reactantFlow;
             
-            prodFrac = prodFlow ./ totalFlow;
-            wastFrac = wasteFlow ./ totalFlow;
-            hydrFrac = hydrogenFlow ./ totalFlow;
-            reacFrac = reactantFlow ./ totalFlow;
-            
-            %Separation costs
+            %Separation costs according to Sherwood (PNAS 2011 paper with
+            %plot - House et al)
             this.sepCosts = this.kp .* totalFlow;
         end
         
         function calculateElectricityCosts(this)
+            %calculateElectricityCosts considers the electrical
+            %requirements
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %It's all about the power draw
             this.electricityCosts = this.current .* this.cellVoltage ...
                 .* this.electricityPrice ./ this.WATT_TO_KW ...
                 ./ this.SECONDS_TO_HOURS;
         end
         
         function calculateElectrolyteCosts(this)
+            %calculateElectrolyteCosts uses the prior mass balances to
+            %determine how much material is needed
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %Do mass balances on each of the individual species and sum
+            %them
             reactant = this.feedRate .* this.reactantMW .* this.feedPrice;
             solvent = this.flowRate .* this.solventPrice .* ( 1 ...
                 - this.recycleSolvent ) ./ this.molality ;
@@ -545,12 +818,23 @@ classdef EconomicCase < handle
         end
         
         function calculateTotalCost(this)
+            %calculateTotalCost adds everything together
+            %
+            %Inputs:
+            %   None - prior parameters of the EconomicCase instance
+            %Outputs:
+            %   None - updates instance
+            
+            %Sum everything up and annualize capital costs by the
+            %operating lifetime
             this.cost = ( this.electricityCosts + this.electrolyteCosts ...
                 + this.sepCosts ...
                 + ( this.capitalCosts + this.bopCosts ) ./ this.lifetime ...
                 ) ./ ( 1 - this.additionalFactor ) ./ this.productionRate ...
                 ./ this.prodMW;
             
+            %Calculate the breakdown for each of the cost contributions as
+            %normalized by production rate
             electricity = this.electricityCosts  ...
                 ./ this.productionRate ./ this.prodMW ;
             seps = this.sepCosts...
@@ -561,8 +845,10 @@ classdef EconomicCase < handle
                 ./ this.lifetime ./ this.prodMW ;
             bop = this.bopCosts ./ this.productionRate ...
                 ./ this.lifetime ./ this.prodMW ;
-            additional = this.cost - electricity - electrolyte - cell - bop;
+            additional = this.cost - electricity - electrolyte - cell - bop - seps;
             
+            
+            %Resize as necessary
             if any(size(electricity) ~= size(this.cost))
                 electricity = repmat(electricity,size(this.cost));
             end
@@ -582,6 +868,7 @@ classdef EconomicCase < handle
                 additional = repmat(additional,size(this.cost));
             end
             
+            %Store in the object
             this.breakdown = [electricity; seps; electrolyte; additional ;bop ;cell];
         end
         
@@ -589,6 +876,17 @@ classdef EconomicCase < handle
     
     methods (Access = private, Static = true)
         function msg = convertName(paramName)
+            %convertName Helper function for modifying any of the inputs to
+            %the EconomicCase
+            %
+            %Takes common spelling of parameter names and converts them to
+            %the names that I have implemented in the model
+            %
+            %Inputs:
+            %   paramName   --  str     --  Name of the parameter
+            %Outputs:
+            %   msg         --  str     --  The correct spelling of a
+            %                               property in the model
             switch lower(paramName(~isspace(paramName)))
                 case 'feedprice'
                     msg = 'feedPrice';
@@ -630,7 +928,7 @@ classdef EconomicCase < handle
                     msg = 'reactantMW';
                 case 'saltmw'
                     msg = 'saltMW';
-                case 'productmw'
+                case {'productmw','prodmw'}
                     msg = 'prodMW';
                 case 'electrolyteratio'
                     msg = 'electrolyteRatio';
@@ -660,6 +958,8 @@ classdef EconomicCase < handle
                     msg = 'recycleElectrolyte';
                 case {'operatingdays'}
                     msg = 'operatingDays';
+                case {'kp'}
+                    msg = 'kp';
                 otherwise
                     error('Unknown name to convert - check your spelling')
             end
