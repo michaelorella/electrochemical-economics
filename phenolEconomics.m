@@ -4,17 +4,17 @@ clear
 
 % Initialize the structure that will be used as the base case for all
 % calculations to follow corresponding to phenol production from guaiacol
-struct.feedPrice = 0.01;
-struct.standardPotential = -1.5;
-struct.transferCoefficient = 0.1;
-struct.wasteElectrons = 6;
-struct.productFE = 0.03;
-struct.herFE = 0.75;
-struct.currentDensity = -500;
-struct.exchangeCurrentDensity = -0.1;
-struct.reactantMW = 124.14;
-struct.prodMW = 94.11;
-struct.productionRate = 0.2;
+struct.feedPrice = 0.01;                    % [=] $/kg low value for biomass
+struct.standardPotential = -1.5;            % [=] V estimated from thermochem
+struct.transferCoefficient = 0.1;           % [=] - very limited data, assumed to be similar to CO2
+struct.wasteElectrons = 6;                  % [=] - chemistry
+struct.productFE = 0.03;                    % [=] - est from Saffron et al
+struct.herFE = 0.75;                        % [=] - est from Saffron et al
+struct.currentDensity = -500;               % [=] A/m^2 from Saffron et al (approx)
+struct.exchangeCurrentDensity = -0.1;       % [=] - very limited data, assumed to be similar to CO2
+struct.reactantMW = 124.14;                 % [=] - chemistry
+struct.prodMW = 94.11;                      % [=] - chemistry
+struct.productionRate = 0.2;                % [=] mol/s ~ 1000 kg/day
 
 cmap = [206.04 59.16 59.16;
         0 127.5 0;
