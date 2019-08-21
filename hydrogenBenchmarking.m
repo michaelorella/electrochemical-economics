@@ -3,7 +3,7 @@
 % constructor
 hydrogenCase = EconomicCase();
 
-%% Get the DOE report data and Model Data
+%% Get the DOE report data and Model Data - taken straight out of report 14004 DOE
 hydrogenData = fliplr([0.42 0.61 0.76 0.01 0 3.34 ;
                 0.48 0.53 0.72 0.01 0 3.38 ]);
 
