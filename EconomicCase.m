@@ -17,7 +17,7 @@ classdef EconomicCase < handle
         %% Specified Values
         %Material, Electricity, and System Pricing
         feedPrice = 0.0;                     % [=] $ kg^{-1}
-        saltPrice = 0.1;                     % [=] $ kg^{-1}
+        saltPrice = 0.0;                     % [=] $ kg^{-1}
         solventPrice = 0.001;                % [=] $ kg^{-1}
         electricityPrice = 0.0612;           % [=] $ kWh^{-1}
         catalystPrice = 32000;               % [=] $ kg^{-1}
@@ -57,8 +57,8 @@ classdef EconomicCase < handle
         conductivity = 0.1;                 % [=] S cm^{-1}
         temperature = 298.15;               % [=] K
         
-        basePrice = 1.1011e4;               % [=] $ m^{-2}
-        baseBopPrice = 1.5873e4;            % [=] $ m^{-2}
+        basePrice = 1.0626e4;               % [=] $ m^{-2}
+        baseBopPrice = 1.5318e4;            % [=] $ m^{-2}
         
         scaleArea = log(423/385) / log(50000/1500);
         % [=] -
@@ -72,6 +72,9 @@ classdef EconomicCase < handle
         recycleElectrolyte = 0.99;          % [=] mol / mol
         recycleFeed = 0.99;                 % [=] mol / mol
         recycleSolvent = 0.99;              % [=] mol / mol
+        
+        %Economic parameters
+        costOfCapital = 0.1;                % [=] % taken from investopedia article that lists 10.72% for chemicals companies being on the high end
     end
     
     properties (Constant = true, Access = private)
@@ -125,7 +128,7 @@ classdef EconomicCase < handle
         bopCosts;                   % [=] $     -- total balance of plant cost
         electricityCosts;           % [=] $/s   -- instantaneous electricity cost
         electrolyteCosts;           % [=] $/s   -- instantaneous feed costs
-        sepCosts;                   % [=] $     -- total cost of separations
+        sepCosts;                   % [=] $/s   -- equivalent cost of separations
         cost;                       % [=] $/kg  -- minimum selling price
         
         %Output from inverted model
@@ -827,10 +830,27 @@ classdef EconomicCase < handle
             
             %Sum everything up and annualize capital costs by the
             %operating lifetime
-            this.cost = ( this.electricityCosts + this.electrolyteCosts ...
-                + this.sepCosts ...
-                + ( this.capitalCosts + this.bopCosts ) ./ this.lifetime ...
-                ) ./ ( 1 - this.additionalFactor ) ./ this.productionRate ...
+            
+            OPEX = ( this.electricityCosts + this.electrolyteCosts ...
+                + this.sepCosts ) ; 
+            % Sep costs should likely be capital after Aspen sim
+            
+            CAPEX = this.capitalCosts + this.bopCosts ; 
+            
+            years = this.lifetime * ( this.SECONDS_TO_YEARS ...
+                * this.operatingDays / 365.25 ) ^ (-1);
+            if this.costOfCapital ~= 0 % convert opex to $/yr rather than $/s
+                noAdditions = OPEX * ( this.SECONDS_TO_YEARS ...
+                            * this.operatingDays / 365.25 ) + CAPEX ...
+                            * this.costOfCapital ...
+                            / ( 1 - ( 1 + this.costOfCapital ) .^ -years );
+                noAdditions = noAdditions * ( this.SECONDS_TO_YEARS ...
+                            * this.operatingDays / 365.25 ) ^ (-1); %Convert EAC back
+            else
+                noAdditions = OPEX + CAPEX / this.lifetime ; 
+            end            
+            this.cost = noAdditions ...
+                ./ ( 1 - this.additionalFactor ) ./ this.productionRate ...
                 ./ this.prodMW;
             
             %Calculate the breakdown for each of the cost contributions as
@@ -841,12 +861,28 @@ classdef EconomicCase < handle
                 ./ this.productionRate ./ this.prodMW ;
             electrolyte = this.electrolyteCosts  ...
                 ./ this.productionRate ./ this.prodMW ;
-            cell = this.capitalCosts ./ this.productionRate ...
-                ./ this.lifetime ./ this.prodMW ;
-            bop = this.bopCosts ./ this.productionRate ...
-                ./ this.lifetime ./ this.prodMW ;
-            additional = this.cost - electricity - electrolyte - cell - bop - seps;
+            if this.costOfCapital == 0    
+                cell = this.capitalCosts ./ this.productionRate ...
+                    ./ this.lifetime ./ this.prodMW ;
+                bop = this.bopCosts ./ this.productionRate ...
+                    ./ this.lifetime ./ this.prodMW ;
+            else
+                cell = this.capitalCosts .* this.costOfCapital ...
+                    / ( 1 - ( 1 + this.costOfCapital ) .^ -years ) ;
+                cell = cell * ( this.SECONDS_TO_YEARS ...
+                            * this.operatingDays / 365.25 ) ^ (-1);
+                cell = cell ./ this.productionRate ./ this.prodMW;
+                        
+                bop = this.bopCosts .* this.costOfCapital ...
+                    / ( 1 - ( 1 + this.costOfCapital ) .^ -years ) ;
+                bop = bop * ( this.SECONDS_TO_YEARS ...
+                            * this.operatingDays / 365.25 ) ^ (-1);
+                bop = bop ./ this.productionRate ./ this.prodMW;
+            end
+            cost = electrolyte + electricity + cell + bop + seps;
+            finalCost = cost ./ ( 1 - this.additionalFactor ) ;
             
+            additional = this.cost - electricity - electrolyte - cell - bop - seps;
             
             %Resize as necessary
             if any(size(electricity) ~= size(this.cost))

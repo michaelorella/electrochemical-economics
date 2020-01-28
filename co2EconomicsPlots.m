@@ -47,10 +47,11 @@ struct.electrolyteRatio = 0;                % [=] - no salt here
 struct.diffusionCoeff = 2.2e-9;             % [=] m^2/s approx for CO2
 struct.blThickness = 3e-6;                  % [=] m approx
 struct.conversion = 0.20;                   % [=] - estimated from experiments from McLain/Steve
-struct.lifetime = 20;                       % [=] years incredibly optimistic
+struct.lifetime = 40;                       % [=] years incredibly optimistic
 struct.catalystLoading = 10;                % [=] mg/cm^2 typical loadings
 struct.kp = 0.003;                          % [=] $/kg mixture rough estimate for Sherwood
 struct.wasteMW = 44;                        % [=] g/mol no waste, just use CO2
+struct.costOfCapital = 0.0;
 
 varyStruct = struct;
 
@@ -79,6 +80,9 @@ co2econ.plotBreakdown(ax)
 
 % Methane case
 co2econ = EconomicCase(struct);
+co2econ.vary('CatalystPrice',8000)
+co2econ.vary('ProdFE',0.5)
+co2econ.vary('HERFE',0.5)
 co2econ.vary('ProdMW',16)
 co2econ.vary('standardPotential',-1.06)
 co2econ.vary('ProductionRate',0.72)
@@ -91,6 +95,9 @@ co2econ.plotBreakdown(ax)
 % Ethylene case
 co2econ = EconomicCase(struct);
 co2econ.vary('ProdMW',28)
+co2econ.vary('CatalystPrice',8000)
+co2econ.vary('ProdFE',0.5)
+co2econ.vary('HERFE',0.5)
 co2econ.vary('standardPotential',-1.17)
 co2econ.vary('ProductionRate',0.41)
 co2econ.vary('Number Electrons',12)
@@ -102,6 +109,9 @@ co2econ.plotBreakdown(ax)
 % Ethanol case
 co2econ = EconomicCase(struct);
 co2econ.vary('ProdMW',46)
+co2econ.vary('CatalystPrice',8000)
+co2econ.vary('ProdFE',0.3)
+co2econ.vary('HERFE',0.7)
 co2econ.vary('standardPotential',-1.15)
 co2econ.vary('ProductionRate',0.25)
 co2econ.vary('Number Electrons',12)

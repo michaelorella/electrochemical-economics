@@ -1,7 +1,8 @@
 %% Build the hydrogen data
 % Economic case has default Hydrogen DOE data built in as the default
 % constructor
-hydrogenCase = EconomicCase();
+struct.costOfCapital = 0;
+hydrogenCase = EconomicCase(struct);
 
 %% Get the DOE report data and Model Data - taken straight out of report 14004 DOE
 hydrogenData = fliplr([0.42 0.61 0.76 0.01 0 3.34 ;
@@ -167,3 +168,73 @@ ax.Box = 'on';
 saveas(f1,'../ECH TE Paper/figures/hydrogenBenchmarking.svg','svg')
 saveas(f2,'../ECH TE Paper/figures/hydrogenTornado.svg','svg')
 saveas(f3,'../ECH TE Paper/figures/doeHydrogenTornado.svg','svg')
+
+
+%% Monte Carlo Sensitivity Analysis
+Nrep = 10000;
+costs = zeros(Nrep,1);
+
+params = {'saltPrice','solventPrice','electricityPrice','catalystPrice','additionalFactor',...
+    'transferCoefficient','productFE','currentDensity','exchangeCurrentDensity',...
+    'diffusionCoefficient','blThickness','conversion','cellGap','conductivity','temperature',...
+    'catalystLoading','lifetime','areaPrice'};
+
+baseCase.saltPrice = 0.1;
+baseCase.solventPrice = 0.001;
+baseCase.electricityPrice = 0.0612;
+baseCase.catalystPrice = 32000;
+baseCase.additionalFactor = 0.14;
+
+baseCase.transferCoefficient = 0.5;
+baseCase.productFE = 0.9;
+baseCase.currentDensity = -15000;
+baseCase.exchangeCurrentDensity = -0.1;
+baseCase.diffusionCoefficient = 5e-9;
+baseCase.blThickness = 1e-5;
+baseCase.conversion = 0.5;
+baseCase.cellGap = 0.02;
+baseCase.conductivity = 0.1;
+baseCase.temperature = 298.15;
+baseCase.catalystLoading = 0.01;
+baseCase.lifetime = 7;
+baseCase.areaPrice = 1.1011e4;
+
+partialcosts = zeros(Nrep,numel(params));
+
+Nbar = 50;
+Nmod = floor(Nrep / Nbar);
+tic
+fprintf(['|',repmat(' ',1,Nbar),'|\n']);
+econ = EconomicCase();
+
+for i = 1:Nrep
+    baseEcon = EconomicCase();
+    
+    %Generate random number with mean 1 and standard deviation of 0.1
+    %These numbers will be used to vary the cost parameters
+    x = 0.1 * randn([1,length(params)]) + 1;
+    v = partialcosts(i,:);
+    
+    for j = 1:length(params)
+        if strcmpi(params{j},'productfe') || strcmpi(params{j},'transfercoefficient') || strcmpi(params{j},'conversion')
+            mappedVal = - log ( 1 / baseCase.(params{j}) - 1) ;
+            newval = ( x(j) - 1 ) + mappedVal ;
+            newval = 1 ./ ( 1 + exp ( - newval ) ) ;
+        else
+            newval = x(j) * baseCase.(params{j});
+        end
+        econ.vary ( params{j} , newval )
+        
+        baseEcon.vary ( params{j} , newval )
+        v ( j ) = baseEcon.cost;
+        baseEcon.vary ( params{j} , baseCase.(params{j}) );
+    end    
+    partialcosts(i,:) = v;
+    costs(i) = econ.cost;
+    if mod(i,Nmod) == 0
+        fprintf(repmat('\b',1,Nbar + 3))
+        fprintf(['|',repmat('*',1,floor(i/Nmod)),repmat(' ',1,Nbar - floor(i/Nmod)),'|\n']);
+    end
+end
+toc
+histogram(costs,100,'Normalization','Probability')
