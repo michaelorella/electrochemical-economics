@@ -33,6 +33,7 @@ classdef EconomicCase < handle
         herFE = 0;                          % [=] -
         currentDensity = -15000.0;          % [=] A m^{-2} geometric
         exchangeCurrentDensity = -0.1;      % [=] A m^{-2} geometric
+        lambda = 9.65e4                     % [=] J/mol - reorganization energy for MHC
         rateName = 'BV';                    % [=] String (e.g. BV or MHC)
         
         %Solution Properties
@@ -566,6 +567,33 @@ classdef EconomicCase < handle
                         exp ( this.numberElectrons .* this.FARADAY_CONSTANT ...
                         .* ( 1 - this.transferCoefficient ) .* n ...
                         ./ this.GAS_CONSTANT ./ this.temperature ) );
+                case {'mhc','marcus','marcus-hush-chidsey'}
+                    temp_rateExpression = @(n, lam) - sqrt(pi * lam) ...
+                        .* tanh(n / 2) ...
+                        .* erfc((lam - sqrt(1 + sqrt(lam)...
+                        + n.^2))./(2 * sqrt(lam)));
+                    % Overpotentials scaled by kT/e
+                    % Energies scaled by kT
+                    
+                    this.rateExpression = @(n) temp_rateExpression(n ...
+                        ./ this.GAS_CONSTANT ./ this.temperature ...
+                        .* this.FARADAY_CONSTANT .* this.numberElectrons, ...
+                        this.lambda ./ this.GAS_CONSTANT ./ this.temperature);
+                    
+                    max_current = 2 * sqrt(this.lambda * pi ...
+                        ./ this.GAS_CONSTANT ./ this.temperature) ...
+                        .* this.exchangeCurrentDensity;
+                    if any(this.currentDensity <= max_current)
+                        warning(strcat('Some current densities are greater than',...
+                            'the maximum allowed value, resetting to 95% of ', ...
+                            '2*sqrt(lam*pi)*k'))
+                        j = this.currentDensity;
+                        this.currentDensity(j <= max_current) = ...
+                            0.95 * 2 * sqrt(this.lambda * pi ...
+                            ./ this.GAS_CONSTANT ./ this.temperature) ...
+                            .* this.exchangeCurrentDensity;
+                    end
+                    
                 otherwise
                     error('Unknown model, try BV!')
             end
@@ -657,7 +685,8 @@ classdef EconomicCase < handle
             n0 = -0.1 .* ones(size(this.currentDensity));
             
             %Solve the kinetic expression
-            options = optimoptions('fsolve','display','off');
+            options = optimoptions('fsolve','display','iter-detailed',...
+                'OptimalityTolerance',1e-12);
             this.kinetics = fsolve(@(n) this.currentDensity...
                 - this.exchangeCurrentDensity .* ...
                 this.rateExpression(n) , n0 , options);
@@ -996,6 +1025,10 @@ classdef EconomicCase < handle
                     msg = 'operatingDays';
                 case {'kp'}
                     msg = 'kp';
+                case {'ratename','kineticmodel'}
+                    msg = 'rateName';
+                case {'lambda', 'reorganizationenergy'}
+                    msg = 'lambda';
                 otherwise
                     error('Unknown name to convert - check your spelling')
             end
